@@ -4,6 +4,7 @@
 #define MAJOR_NUM 432
 #define DEVICE_FILE_NAME "encryptdev"
 #define DEVICE_NAME "encryptdev"
+#define CLASS_NAME "encryptdev"
 
 #define SUCCESS 0
 #define BUF_LEN 256

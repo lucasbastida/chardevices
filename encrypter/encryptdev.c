@@ -2,8 +2,12 @@
 #include <linux/module.h> /* Specifically, a module */
 #include <linux/fs.h>
 #include <linux/uaccess.h> /* for get_user and put_user */
+#include <linux/device.h>
 
 #include "encryptdev.h"
+
+static struct class* encdevClass = NULL;
+static struct device* encdevDevice = NULL;
 
 static int Device_Open = 0;   //prevent concurrent access
 static char Message[BUF_LEN]; //message device gives when asked
@@ -110,21 +114,36 @@ static int __init encrypt_init(void)
 		return ret_val;
 	}
 
+	encdevClass = class_create(THIS_MODULE, CLASS_NAME);
+	if (IS_ERR(encdevClass))
+	{
+		unregister_chrdev(MAJOR_NUM, DEVICE_NAME);
+		printk(KERN_INFO "encdev: Failed to register device class.\n");
+		return PTR_ERR(encdevClass);
+	}
+	printk(KERN_INFO "encryptdev Device class registered.\n");
+
+	encdevDevice = device_create(encdevClass, NULL, MKDEV(MAJOR_NUM, 0), NULL, DEVICE_NAME);
+	if (IS_ERR(encdevDevice))
+	{
+		class_destroy(encdevClass);
+		unregister_chrdev(MAJOR_NUM, DEVICE_NAME);
+		printk(KERN_INFO "encryptdev: Failed to create the device.\n");
+		return PTR_ERR(encdevDevice);
+	}
+	printk(KERN_INFO "encryptdev: Device class created.\n");
+
 	printk(KERN_INFO "%s The major device number is %d.\n",
 		   "Registeration is a success", MAJOR_NUM);
-	printk(KERN_INFO "If you want to talk to the device driver,\n");
-	printk(KERN_INFO "you'll have to create a device file. \n");
-	printk(KERN_INFO "We suggest you use:\n");
-	printk(KERN_INFO "mknod %s c %d 0\n", DEVICE_FILE_NAME, MAJOR_NUM);
-	printk(KERN_INFO "The device file name is important, because\n");
-	printk(KERN_INFO "the ioctl program assumes that's the\n");
-	printk(KERN_INFO "file you'll use.\n");
 
 	return 0;
 }
 
 static void __exit encrypt_exit(void)
 {
+	device_destroy(encdevClass, MKDEV(MAJOR_NUM, 0));
+	class_unregister(encdevClass);
+	class_destroy(encdevClass);
 	unregister_chrdev(MAJOR_NUM, DEVICE_NAME);
 }
 
