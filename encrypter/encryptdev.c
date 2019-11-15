@@ -6,8 +6,8 @@
 
 #include "encryptdev.h"
 
-static struct class* encdevClass = NULL;
-static struct device* encdevDevice = NULL;
+static struct class *encdevClass = NULL;
+static struct device *encdevDevice = NULL;
 
 static int Device_Open = 0;   //prevent concurrent access
 static char Message[BUF_LEN]; //message device gives when asked
@@ -77,6 +77,8 @@ static ssize_t device_read(struct file *file,   /* see include/linux/fs.h   */
 		length--;
 		bytes_read++;
 	}
+	//add NULL to end of user buffer
+	put_user(0, buffer);
 
 	/* 
 	 * Read functions are supposed to return the number
@@ -101,6 +103,8 @@ static ssize_t device_write(struct file *file,
 	Message_Ptr = Message;
 	return i;
 }
+
+
 
 static int __init encrypt_init(void)
 {
