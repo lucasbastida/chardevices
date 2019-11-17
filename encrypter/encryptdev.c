@@ -1,28 +1,26 @@
+#include <linux/init.h>
 #include <linux/kernel.h> /* We're doing kernel work */
 #include <linux/module.h> /* Specifically, a module */
 #include <linux/fs.h>
 #include <linux/uaccess.h> /* for get_user and put_user */
 #include <linux/device.h>
+#include <linux/cdev.h>
 
-#include "encryptdev.h"
+#define DEVICE_NAME "encryptdev"
 
-static struct class *encdevClass = NULL;
-static struct device *encdevDevice = NULL;
+#define ENCRYPTION_SHIFT 1
+
+#define SUCCESS 0
+#define BUF_LEN 256
+
+static dev_t first;
+static struct cdev c_dev;
+static struct class *encryptClass = NULL;
+static struct device *encryptDevice = NULL;
 
 static int Device_Open = 0;   //prevent concurrent access
 static char Message[BUF_LEN]; //message device gives when asked
-/* 
- * How far did the process reading the message get?
- * Useful if the message is larger than the size of the
- * buffer we get to fill in device_read. 
- */
-static char *Message_Ptr;
-
-static struct file_operations fops = {
-	.read = device_read,
-	.write = device_write,
-	.open = device_open,
-	.release = device_release};
+static char *Message_Ptr;	 //Useful if the message is larger than the size of the buffer we get to fill in device_read.
 
 int device_open(struct inode *inode, struct file *file)
 {
@@ -77,8 +75,6 @@ static ssize_t device_read(struct file *file,   /* see include/linux/fs.h   */
 		length--;
 		bytes_read++;
 	}
-	//add NULL to end of user buffer
-	put_user(0, buffer);
 
 	/* 
 	 * Read functions are supposed to return the number
@@ -97,19 +93,28 @@ static ssize_t device_write(struct file *file,
 	for (i = 0; i < length && i < BUF_LEN; i++)
 	{
 		get_user(Message[i], buffer + i); //place char into Message
-		Message[i] = Message[i] + 1;	  //encrypt
+
+		if (Message[i] != 0) //if not NULL char
+		{
+			Message[i] = Message[i] + ENCRYPTION_SHIFT; //encrypt
+		}
 	}
 
 	Message_Ptr = Message;
 	return i;
 }
 
-
+static struct file_operations fops = {
+	.read = device_read,
+	.write = device_write,
+	.open = device_open,
+	.release = device_release};
 
 static int __init encrypt_init(void)
 {
 	int ret_val;
-	ret_val = register_chrdev(MAJOR_NUM, DEVICE_NAME, &fops);
+	/* Dynamically choose a major number along with the first minor number in dev_t */
+	ret_val = alloc_chrdev_region(&first, 0, 1, DEVICE_NAME); //register a range of char device numbers
 
 	if (ret_val < 0)
 	{
@@ -118,41 +123,51 @@ static int __init encrypt_init(void)
 		return ret_val;
 	}
 
-	encdevClass = class_create(THIS_MODULE, CLASS_NAME);
-	if (IS_ERR(encdevClass))
+	encryptClass = class_create(THIS_MODULE, DEVICE_NAME);
+	if (IS_ERR(encryptClass)) //if failed to create device class
 	{
-		unregister_chrdev(MAJOR_NUM, DEVICE_NAME);
-		printk(KERN_INFO "encdev: Failed to register device class.\n");
-		return PTR_ERR(encdevClass);
+		unregister_chrdev_region(first, 1);
+		printk(KERN_ALERT " Failed with creating class");
+		return PTR_ERR(encryptClass);
 	}
-	printk(KERN_INFO "encryptdev Device class registered.\n");
 
-	encdevDevice = device_create(encdevClass, NULL, MKDEV(MAJOR_NUM, 0), NULL, DEVICE_NAME);
-	if (IS_ERR(encdevDevice))
+	encryptDevice = device_create(encryptClass, NULL, first, NULL, DEVICE_NAME);
+	if (IS_ERR(encryptDevice)) //if failed to create device
 	{
-		class_destroy(encdevClass);
-		unregister_chrdev(MAJOR_NUM, DEVICE_NAME);
-		printk(KERN_INFO "encryptdev: Failed to create the device.\n");
-		return PTR_ERR(encdevDevice);
+		class_destroy(encryptClass);
+		unregister_chrdev_region(first, 1);
+		printk(KERN_ALERT " Failed with creating device");
+		return PTR_ERR(encryptDevice);
 	}
-	printk(KERN_INFO "encryptdev: Device class created.\n");
+
+	cdev_init(&c_dev, &fops);
+	ret_val = cdev_add(&c_dev, first, 1);
+	if (ret_val < 0)
+	{
+		device_destroy(encryptClass, first);
+		class_destroy(encryptClass);
+		unregister_chrdev_region(first, 1);
+		printk(KERN_ALERT " Failed with registering character device");
+		return ret_val;
+	}
 
 	printk(KERN_INFO "%s The major device number is %d.\n",
-		   "Registeration is a success", MAJOR_NUM);
+		   "Registeration is a success", MAJOR(first));
 
 	return 0;
 }
 
 static void __exit encrypt_exit(void)
 {
-	device_destroy(encdevClass, MKDEV(MAJOR_NUM, 0));
-	class_unregister(encdevClass);
-	class_destroy(encdevClass);
-	unregister_chrdev(MAJOR_NUM, DEVICE_NAME);
+	cdev_del(&c_dev);
+	device_destroy(encryptClass, first);
+	class_unregister(encryptClass);
+	class_destroy(encryptClass);
+	unregister_chrdev_region(first, 1);
 }
 
 module_init(encrypt_init);
 module_exit(encrypt_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("Encryption Character device");
+MODULE_DESCRIPTION("Encryption Character device driver");
