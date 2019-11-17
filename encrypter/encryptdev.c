@@ -2,7 +2,7 @@
 #include <linux/kernel.h> /* We're doing kernel work */
 #include <linux/module.h> /* Specifically, a module */
 #include <linux/fs.h>
-#include <linux/uaccess.h> /* for get_user and put_user */
+#include <linux/uaccess.h> /* for get_user and put_user, on older versions #include <asm/uaccess.h> */
 #include <linux/device.h>
 #include <linux/cdev.h>
 
@@ -99,6 +99,8 @@ static ssize_t device_write(struct file *file,
 			Message[i] = Message[i] + ENCRYPTION_SHIFT; //encrypt
 		}
 	}
+	if (i < BUF_LEN - 1)	//if it didnt write at the last position of the Message array
+		Message[i + 1] = 0; // NULL terminate the array
 
 	Message_Ptr = Message;
 	return i;
